@@ -107,9 +107,6 @@ This project’s execution flow and design leverage a combination of standard C 
     **Role:**  
     - Retrieves the stored PSP value for the currently active task from the task context array.
 
-
-
-
 ---
 
 ## Usage
@@ -141,3 +138,69 @@ This project’s execution flow and design leverage a combination of standard C 
 
 ---
 
+### **Understanding AAPCS and How I Used It in This Project (Cortex-M0 Specific)**  
+
+#### **What is AAPCS?**  
+The **ARM Architecture Procedure Call Standard (AAPCS)** defines how functions pass arguments, return values, and manage registers in ARM systems. It ensures consistent function calls across assembly and C code. The key rules are:  
+
+1. **Function Arguments & Return Values:**  
+   - The first **four arguments** are passed in **R0–R3**.  
+   - Any additional arguments are pushed onto the stack.  
+   - The function’s return value is placed in **R0**.  
+
+2. **Caller-Saved & Callee-Saved Registers:**  
+   - **R0–R3 and R12** are **caller-saved**, meaning they may be modified by a function call.  
+   - **R4–R11** are **callee-saved**, meaning they must be preserved by a function if used.  
+
+3. **Stack & Exception Handling:**  
+   - The **stack pointer (SP) must be 8-byte aligned** before calling a function.  
+   - On exception entry (e.g., SysTick interrupt), the CPU **automatically** pushes:  
+     - **R0–R3** (used for function arguments)  
+     - **R12** (temporary register, caller-saved)  
+     - **LR (Link Register)** (return address)  
+     - **PC (Program Counter)** (execution address at time of interrupt)  
+     - **xPSR (Program Status Register)** (status flags, interrupt status, etc.)  
+   - This ensures that when the exception exits, execution resumes correctly.  
+
+---
+
+### **How I Took Advantage of AAPCS in This Project**  
+
+1. **Using R0 to Pass PSP for Context Switching**  
+   - Since AAPCS requires the first function argument to be in **R0**, I passed the Process Stack Pointer (PSP) this way in functions like:  
+     - `get_psp_value()` → Returns the PSP of the current task  
+     - `save_psp_value()` → Stores PSP before switching tasks  
+     - `update_next_task()` → Selects the next task’s PSP  
+   - This avoids stack-based argument passing, reducing overhead.  
+
+2. **Manual Register Saving & Restoring in SysTick_Handler**  
+   - Cortex-M0 **does not support** `STMDB` (Store Multiple Decrement Before) and `LDMIA` (Load Multiple Increment After), which are normally used for fast register saves.  
+   - Instead, I manually store **R4–R11** to the stack using `STR` (store) and restore them using `LDR` (load).  
+   - I then subtract **32 bytes from PSP** (8 registers × 4 bytes) before saving and add **32 bytes** back when restoring.  
+   - This ensures all necessary registers are preserved for task switching.  
+
+3. **Saving & Restoring LR Using R12**  
+   - **R12 is caller-saved**, meaning it isn’t preserved across function calls by AAPCS.  
+   - I took advantage of this by **saving LR into R12** before switching tasks.  
+   - When restoring context, took **move R12 back into LR**, ensuring the function resumes correctly.  
+
+4. **Handling xPSR, PC, and LR During Task Switching**  
+   - Since the **CPU automatically saves xPSR, PC, and LR** on exception entry, I don’t manually store them.  
+   - When restoring context, I ensure the stack is correctly positioned so that the **EXC_RETURN instruction restores xPSR, PC, and LR** correctly.  
+   - This guarantees that the new task resumes execution at the right instruction with the correct status flags.  
+
+---
+
+### **Why This Approach?**  
+- **Follows AAPCS:** Ensures compatibility with function calling conventions.  
+- **Minimizes Overhead:** Uses `R0` for function arguments instead of stack-based passing.  
+- **Works Around Cortex-M0 Limitations:** Avoids `STMDB/LDMIA` by manually handling register saves.  
+- **Ensures Correct Task Resumption:** By properly handling **xPSR, PC, and LR**, I make sure tasks resume without corruption.  
+
+By following AAPCS conventions while overcoming Cortex-M0’s limitations, I achieved an **efficient round-robin scheduler** that switches tasks seamlessly.
+
+## Challenges Faced
+
+Developing this scheduler required a deep understanding of the ARM Architecture Procedure Call Standard (AAPCS), which specifies that function arguments are passed in registers R0–R3—this design leverages R0 to receive the PSP value as an input argument in functions like `get_psp_value()`, ensuring seamless data flow without additional memory operations.
+
+Cortex-M0 lacks STMDB/LDMIA, forcing me to manually save/restore R4–R11 using individual STR/LDR instructions. Compounding this, STR/LDR can only access R0–R7, so I had to use R1 as an intermediate register to save/restore R8–R11. Additionally, since AAPCS automatically saves R0–R3, R12, LR, PC, and xPSR, I leveraged R12 to store LR, ensuring proper task resumption.
