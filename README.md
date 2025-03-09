@@ -1,12 +1,6 @@
 # STM32 Task Scheduler - Round Robin
 
-A custom-built round-robin task scheduler for the STM32F072RBT6, implemented completely from scratch by referencing the Cortex‑M0 user guide. This project is a testament to low-level embedded systems expertise, demonstrating manual context switching and real-time task management using the SysTick handler.
-
----
-
-## Overview
-
-This project implements a robust round-robin scheduler that manages multiple tasks by leveraging the Cortex‑M0’s SysTick timer. Every aspect—from initializing task stacks to context switching—is crafted manually, showcasing a deep understanding of ARM Cortex‑M0 architecture. Debugged meticulously using STM32CubeIDE, the scheduler offers a lightweight, efficient approach to task management in resource-constrained embedded systems.
+A custom-built round-robin task scheduler for the STM32F072RBT6, implemented completely from scratch by referencing the Cortex‑M0 user guide.Demonstrating manual context switching and real-time task management using the SysTick handler.
 
 ---
 
@@ -28,6 +22,93 @@ At the core of this scheduler is the SysTick handler, which triggers every 1 ms 
 
 - **Debug and Trace via Semihosting:**  
   Debug messages printed to the console provide real-time feedback on task execution and context switching, with placeholders available for screenshots of console output to demonstrate system behavior during operation.
+
+
+
+
+This project’s execution flow and design leverage a combination of standard C functions and naked functions (which omit the automatic prologue/epilogue) to achieve low-level context switching. The numbering below follows the order in which functions are executed and interact:
+
+1. **main()**  
+   *Type: Standard C function*  
+   **Role:**  
+   - Entry point of the program.
+   - Initializes debugging support via `initialise_monitor_handles()`.
+   - Sets up the scheduler’s main stack by calling **init_scheduler_stack()**.
+   - Captures task handler addresses for each task.
+   - Initializes each task’s stack using **init_tasks_stack()**.
+   - Configures the SysTick timer with **init_systick_timer()** for a 1ms tick.
+   - Switches the CPU’s active stack pointer from MSP to PSP using **switch_sp_to_psp()**.
+   - Launches the first task by calling one of the task handlers (e.g., **task1_handler()**).
+
+2. **initialise_monitor_handles()**  
+   *Type: External function (provided by the debug environment)*  
+   **Role:**  
+   - Sets up semihosting, allowing console output for debugging purposes.
+
+3. **init_scheduler_stack(uint32_t sched_top_of_stack)**  
+   *Type: Naked function*  
+   **Role:**  
+   - Directly initializes the Main Stack Pointer (MSP) to a predefined scheduler stack location without compiler-added register saving.
+
+4. **init_tasks_stack(void)**  
+   *Type: Standard C function*  
+   **Role:**  
+   - Iterates over all tasks to initialize their individual stacks.
+   - Creates a dummy stack frame for each task that includes:
+     - The initial xPSR value.
+     - The task’s PC (set to the task handler’s address).
+     - The LR value (set to an EXC_RETURN constant for thread mode using PSP).
+   - Ensures proper stack alignment for reliable execution.
+
+5. **init_systick_timer(uint32_t tick_hz)**  
+   *Type: Standard C function*  
+   **Role:**  
+   - Configures the SysTick timer registers (RVR, CSR, and CVR) to generate periodic interrupts at a rate defined by `tick_hz` (1ms in this case).
+   - Enables the SysTick interrupt and selects the processor clock as the source.
+
+6. **switch_sp_to_psp(void)**  
+   *Type: Naked function*  
+   **Role:**  
+   - Switches the active stack pointer from MSP (used during initialization) to PSP (used by tasks).
+   - Retrieves the current task’s PSP value, sets the PSP register, and updates the CONTROL register accordingly—all while preserving LR manually.
+
+7. **Task Handlers (task1_handler, task2_handler, task3_handler, task4_handler)**  
+   *Type: Standard C functions*  
+   **Role:**  
+   - Represent individual tasks that execute continuously (e.g., printing a message).
+   - Provide a simple workload to demonstrate that context switching occurs as intended.
+
+8. **SysTick_Handler(void)**  
+   *Type: Naked function*  
+   **Role:**  
+   - Serves as the interrupt service routine for the SysTick timer.
+   - **Context Saving:**  
+     - Reads the current PSP.
+     - Manually decrements the PSP and stores registers R4 through R11 (using inline assembly) to save the context of the running task.
+   - **Task Switching:**  
+     - Calls helper functions to save the current task’s PSP, update the task index (round-robin), and retrieve the next task’s PSP.
+   - **Context Restoring:**  
+     - Loads registers R4–R11 from the new task’s stack.
+     - Adjusts the PSP back and updates the PSP register.
+   - Returns control to the new task by restoring the saved LR.
+
+9. **save_psp_value(uint32_t current_psp_value)**  
+   *Type: Standard C function*  
+   **Role:**  
+   - Saves the current task’s Process Stack Pointer (PSP) into an array that maintains the context for all tasks.
+
+10. **update_next_task(void)**  
+    *Type: Standard C function*  
+    **Role:**  
+    - Updates the index of the current task using a modulo operation, ensuring a cyclic (round-robin) scheduling mechanism.
+
+11. **get_psp_value(void)**  
+    *Type: Standard C function*  
+    **Role:**  
+    - Retrieves the stored PSP value for the currently active task from the task context array.
+
+
+
 
 ---
 
