@@ -1,6 +1,6 @@
 # STM32 Task Scheduler - Round Robin
 
-A custom-built round-robin task scheduler for the STM32F072RBT6, implemented completely from scratch by referencing the Cortex‑M0 user guide.Demonstrating manual context switching and real-time task management using the SysTick handler.
+A custom-built round-robin task scheduler for the STM32F072RBT6, implemented completely from scratch by referencing the Cortex‑M0 user guide. Demonstrating manual context switching and real-time task management using the SysTick handler.
 
 ![image](https://github.com/user-attachments/assets/964c4424-69ae-461c-ae25-d04be23ab91e)
 ![image](https://github.com/user-attachments/assets/668cde6e-0e9e-4cf8-949a-ac5dd31a38f5)
