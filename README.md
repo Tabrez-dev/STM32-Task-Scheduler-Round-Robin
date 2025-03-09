@@ -26,7 +26,61 @@ At the core of this scheduler is the SysTick handler, which triggers every 1 ms 
   Debug messages printed to the console provide real-time feedback on task execution and context switching, with placeholders available for screenshots of console output to demonstrate system behavior during operation.
 
 
+## **Execution Flow of the Round Robin Scheduler**
 
+This table describes how the scheduler initializes and performs task switching using **SysTick_Handler**, explaining why we need a **dummy stack** and **manual register saving/loading** due to Cortex-M0’s limitations.
+
+---
+
+### **Execution Flow from `main()`**
+| **Step** | **Function** | **Purpose** |
+|----------|-------------|-------------|
+| 1 | `initialise_monitor_handles()` | Enables semi-hosting for debugging (optional). |
+| 2 | **(No processor faults to enable in Cortex-M0)** | Cortex-M0 does not have configurable fault handlers. |
+| 3 | `init_scheduler_stack(SCHED_STACK_START)` | Sets up **Main Stack Pointer (MSP)** for the scheduler. |
+| 4 | `task_handlers[0] = (uint32_t)task1_handler;`<br>`task_handlers[1] = (uint32_t)task2_handler;`<br>`task_handlers[2] = (uint32_t)task3_handler;`<br>`task_handlers[3] = (uint32_t)task4_handler;` | Stores the function addresses of tasks in an array. |
+| 5 | `init_tasks_stack()` | **Creates a dummy stack for each task:**<br> - Simulates an exception return frame.<br> - Ensures tasks start execution as if they were interrupted. |
+| 6 | `init_systick_timer(TICK_HZ)` | Sets up **SysTick Timer** to generate periodic interrupts for task switching. |
+| 7 | `switch_sp_to_psp()` | **Switches the Stack Pointer (SP) from MSP to PSP** before starting the first task. |
+| 8 | `task1_handler()` | Begins executing Task 1. |
+| 9 | `for(;;);` | Keeps the program running indefinitely. |
+
+---
+
+### **Task 1 → Task 2 Switch (Triggered by SysTick)**
+| **Step** | **Function** | **Purpose** |
+|----------|-------------|-------------|
+| 1 | `SysTick_Handler()` | **SysTick Timer interrupt triggers a context switch.** |
+| 2 | `MRS R0, PSP` | **Retrieve current PSP (Task 1’s stack pointer)** before switching tasks. |
+| 3 | **Store R4–R11 manually** | - Cortex-M0 lacks **STMDB (Store Multiple Decrement Before)**, so we use **individual `STR` instructions**.<br> - **Why?** These registers are **callee-saved** (must be preserved).<br> - **How?** Using PSP, we **manually push** R4–R11 to stack. |
+| 4 | `MOV R12, LR` | Save **LR (EXC_RETURN value)** since it is needed for returning. |
+| 5 | `save_psp_value()` | **Stores the updated PSP** (after saving R4–R11) for Task 1. |
+| 6 | `update_next_task()` | **Selects the next task (Task 2) to run** based on Round Robin scheduling. |
+| 7 | `get_psp_value()` | Retrieves **Task 2’s PSP** (previous stack pointer). |
+| 8 | **Restore R4–R11 manually** | - Cortex-M0 lacks **LDMIA (Load Multiple Increment After)**, so we use **individual `LDR` instructions**.<br> - **Why?** These registers were saved before switching.<br> - **How?** Using PSP, we **manually pop** R4–R11. |
+| 9 | `MSR PSP, R0` | **Update PSP to point to Task 2’s stack**. |
+| 10 | `MOV LR, R12` | Restore **LR** (EXC_RETURN value) before exiting handler. |
+| 11 | `BX LR` | **Exit SysTick_Handler**, resuming Task 2. |
+
+---
+
+### **Why Are These Steps Necessary?**
+1. **Why do we need a dummy stack?**  
+   - Each task starts execution **as if it was interrupted**.  
+   - The stack frame must contain **R0–R3, R12, LR, PC, xPSR** so the CPU can "resume" execution.  
+   - Otherwise, task execution will crash due to an invalid stack frame.  
+
+2. **Why do we manually store/restore R4–R11?**  
+   - Cortex-M0 lacks **STMDB/LDMIA**, forcing us to use **manual `STR` and `LDR` instructions**.  
+   - We **use R1 as an intermediate register** because Cortex-M0 **can only store/load R0–R7 directly**.  
+
+3. **Why do we save LR in R12?**  
+   - The **EXC_RETURN value** in LR determines if we return to **Thread Mode using PSP** or MSP.  
+   - If lost, the system **won’t know how to return to the task properly**.  
+
+---
+
+This cycle repeats indefinitely, ensuring fair CPU time for each task using **Round Robin scheduling**.
 
 This project’s execution flow and design leverage a combination of standard C functions and naked functions (which omit the automatic prologue/epilogue) to achieve low-level context switching. The numbering below follows the order in which functions are executed and interact:
 
