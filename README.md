@@ -141,4 +141,3 @@ This project’s execution flow and design leverage a combination of standard C 
 
 ---
 
-*Created by [Tabrez-dev](https://github.com/Tabrez-dev) – March 2025*
